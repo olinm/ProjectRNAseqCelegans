@@ -1,0 +1,583 @@
+#WEEK 1
+
+---
+TITLE: "Oliwia's RNA-Seq analysis notebook"
+---
+
+This notebook was created to log the process of analyzing the RNA-Seq for C. elegans along with the code used. It will also be used to track my progress throughout this project.
+
+The data used for this project was provided by Johan Henrikkson from Changchun Chen Lab group "on acute and chronic oxygen sensation in the nematode C. elegans".
+Data: https://www.dropbox.com/s/ndyshovp0l1gc9t/cleaned_data.zip?dl=0
+
+---
+RStudio info
+---
+platform       x86_64-w64-mingw32          
+arch           x86_64                      
+os             mingw32                     
+system         x86_64, mingw32             
+status                                     
+major          4                           
+minor          1.2                         
+year           2021                        
+month          11                          
+day            01                          
+svn rev        81115                       
+language       R                           
+version.string R version 4.1.2 (2021-11-01)
+nickname       Bird Hippie
+
+Base packages:
+>Bioconductor
+>tidyverse
+>devtools
+
+---
+PART 1: UMAP - Uniform Manifold Approximation and Projection
+---
+Qualitative overview based on this notebook on UMAP Visualization - https://alexslemonade.github.io/refinebio-examples/03-rnaseq/dimension-reduction_rnaseq_02_umap.html
+
+Packages used:
+>DESeq2
+>umap
+
+#setting up analysis folders
+```{r}
+# Create the data folder if it doesn't exist
+if (!dir.exists("data")) {
+  dir.create("data")
+}
+
+# Define the file path to the plots directory
+plots_dir <- "plots"
+
+# Create the plots folder if it doesn't exist
+if (!dir.exists(plots_dir)) {
+  dir.create(plots_dir)
+}
+
+# Define the file path to the results directory
+results_dir <- "results"
+
+# Create the results folder if it doesn't exist
+if (!dir.exists(results_dir)) {
+  dir.create(results_dir)
+}
+```
+
+#place data folder `dir` (containing cnt_clean & cond_clean) in `data` folder
+
+#define file paths to the directory
+```{r}
+# data directory path
+data_dir <- file.path("data", "dir")
+
+# data path
+data_file <- file.path(data_dir, "cnt_clean.csv")
+
+# metadata path
+metadata_file <- file.path(data_dir, "cond_clean.csv")
+```
+
+#double check if the files are present at the paths defined
+```{r}
+file.exists(data_file)
+
+file.exists(metadata_file)
+```
+should return `TRUE`
+
+#install packages if not already present
+```{r}
+if (!("DESeq2" %in% installed.packages())) {
+  # Install DESeq2
+  BiocManager::install("DESeq2", update = FALSE)
+}
+
+if (!("umap" %in% installed.packages())) {
+  # Install umap package
+  BiocManager::install("umap", update = FALSE)
+}
+```
+
+#attach packages for analysis
+```{r}
+# Attach the `DESeq2` library
+library(DESeq2)
+
+# Attach the `umap` library
+library(umap)
+
+# Attach the `ggplot2` library for plotting
+library(ggplot2)
+
+# We will need this so we can use the pipe: %>%
+library(magrittr)
+
+# Set the seed so our results are reproducible:
+set.seed(12345)
+
+#needed to replace some values in the table
+library(stringr)
+```
+
+#import and setup data
+```{r}
+# Read in metadata CSV file
+cond_clean <- readr::read_csv(metadata_file)
+
+# Read in data CSV file
+cnt_clean <- readr::read_csv(data_file)
+```
+
+#organize the table for `cond_clean`
+```{r}
+ cond_clean[1,1]="sample" #adds title for samples
+colnames(cond_clean) <- cond_clean[1,] #moves the names from 1 to column names
+cond_clean <- cond_clean[-1,] #removes extra row
+cond_clean$h2s_conc <- str_replace(cond_clean$h2s_conc, "con", "50") #replaces the `con` to `50` in `h2s_conc`
+```
+
+#put metadata and data in the same sample order
+```{r}
+# Make the data in the order of the metadata
+cnt_clean <- cnt_clean %>%
+  dplyr::select(cond_clean$sample)
+
+# Check if this is in the same order
+all.equal(colnames(cnt_clean), cond_clean$sample)
+```
+should return `TRUE`
+
+#prepare metadata for `DESeq2`
+Metadata I will use needs to be converted into factors. I am choosing only columns I want to use to annotate my plot.
+```{r}
+# convert the columns we will be using for annotation into factors
+cond_clean1 <- cond_clean %>%
+  dplyr::select( #only columns I will use for this plot
+    sample,
+    treatment,
+    h2s_conc
+  ) %>%
+  dplyr::mutate( #converts the variables into factors
+    treatment = factor(
+      treatment,
+      # specify the possible levels in the order we want them to appear
+      levels = c("h2s", "anoxia")
+    ),
+    h2s_conc = factor(
+      h2s_conc,
+      levels = c("0", "50", "150")
+      )
+  )
+```
+
+#minimum counts cutoff
+To eliminate noise concerned with low expression counts a cutoff is performed. In this example, only genes with 10 or more reads total will be kept.
+```{r}
+filtered_cnt <- cnt_clean %>%
+  dplyr::filter(rowSums(.) >= 10)
+```
+
+#round counts
+The counts from `filtered_cnt` need to be rounded before 'DESeqDataSetFromMatrix()` can be used since it needs the values to be integers.
+```{r}
+filtered_cnt <- round(filtered_cnt)
+```
+
+#create a DESeqDataSet
+```{r}
+# Create a `DESeqDataSet` object
+dds <- DESeqDataSetFromMatrix(
+  countData = filtered_cnt, #values for the samples
+  colData = cond_clean1, #annotation data for the samples in the counts data frame
+  design = ~1
+)
+```
+
+#variance stabilizing transformation
+Used to normalize the data (useful in simplifying to use in analysis).
+```{r}
+dds_norm <- vst(dds)
+```
+
+#UMAP
+UMAP is a technique that constructs high-dimensional graphs and then maps it to a lower-dimensional graph. It allows us to get a qualitative overview of the data.
+```{r}
+normalized_counts <- assay(dds_norm) %>% #retrieving normalized data `dds_norm` using the `assay()` function
+  t() #transposing the data so that each row is a sample
+
+umap_results <- umap::umap(normalized_counts) #performing UMAP on the normalized data
+```
+
+#prepare data frame for plotting
+TO prepare the data for plotting the extracted counts data from `umap_results` and the metadata variables need to be merged for annotation.
+```{r}
+umap_plot_df <- data.frame(umap_results$layout) %>% # Make into data frame for plotting with `ggplot2`, The UMAP values needed for plotting are stored in the `layout` element
+   tibble::rownames_to_column("sample") %>% #turn sample IDs stored as row names into a column
+  dplyr::inner_join(cond_clean1, by = "sample") #add metadata into the data frame and match by sample IDs
+```
+Data frame created
+```{r}
+umap_plot_df
+```
+
+#create UMAP plot
+```{r}
+# Plot using `ggplot()` function and save to an object
+final_annotated_umap_plot <- ggplot(
+  umap_plot_df,
+  aes(
+    x = X1,
+    y = X2,
+    # plot points with different colors for each `treatment` group
+    color = treatment,
+    # plot points with different shapes for each `h2s_conc` group
+    shape = h2s_conc
+  )
+) +
+  geom_point() # make a scatterplot
+
+# Display the plot that we saved above
+final_annotated_umap_plot
+```
+
+#save plot
+```{r}
+ggsave(
+  file.path(
+    plots_dir,
+    "ElegansUMAPPlot.png"
+  ),
+  plot = final_annotated_umap_plot
+)
+```
+
+---
+SESSION INFO
+---
+ setting  value
+ version  R version 4.1.2 (2021-11-01)
+ os       Windows 10 x64 (build 19043)
+ system   x86_64, mingw32
+ ui       RStudio
+ language (EN)
+ collate  English_Europe.1252
+ ctype    English_Europe.1252
+ tz       Europe/Berlin
+ date     2022-01-17
+ rstudio  2021.09.1+372 Ghost Orchid (desktop)
+ pandoc   2.14.0.3 @ C:/Program Files/RStudio/bin/pandoc/ (via rmarkdown)
+
+- Packages ----------------------------------------------------------
+ package              * version  date (UTC) lib source
+ annotate               1.72.0   2021-10-26 [1] Bioconductor
+ AnnotationDbi          1.56.2   2021-11-09 [1] Bioconductor
+ askpass                1.1      2019-01-13 [1] CRAN (R 4.1.2)
+ assertthat             0.2.1    2019-03-21 [1] CRAN (R 4.1.2)
+ Biobase              * 2.54.0   2021-10-26 [1] Bioconductor
+ BiocGenerics         * 0.40.0   2021-10-26 [1] Bioconductor
+ BiocManager            1.30.16  2021-06-15 [1] CRAN (R 4.1.2)
+ BiocParallel           1.28.3   2021-12-09 [1] Bioconductor
+ Biostrings             2.62.0   2021-10-26 [1] Bioconductor
+ bit                    4.0.4    2020-08-04 [1] CRAN (R 4.1.2)
+ bit64                  4.0.5    2020-08-30 [1] CRAN (R 4.1.2)
+ bitops                 1.0-7    2021-04-24 [1] CRAN (R 4.1.1)
+ blob                   1.2.2    2021-07-23 [1] CRAN (R 4.1.2)
+ cachem                 1.0.6    2021-08-19 [1] CRAN (R 4.1.2)
+ cli                    3.1.0    2021-10-27 [1] CRAN (R 4.1.2)
+ colorspace             2.0-2    2021-06-24 [1] CRAN (R 4.1.2)
+ crayon                 1.4.2    2021-10-29 [1] CRAN (R 4.1.2)
+ DBI                    1.1.2    2021-12-20 [1] CRAN (R 4.1.2)
+ DelayedArray           0.20.0   2021-10-26 [1] Bioconductor
+ DESeq2               * 1.34.0   2021-10-26 [1] Bioconductor
+ digest                 0.6.29   2021-12-01 [1] CRAN (R 4.1.2)
+ dplyr                  1.0.7    2021-06-18 [1] CRAN (R 4.1.2)
+ ellipsis               0.3.2    2021-04-29 [1] CRAN (R 4.1.2)
+ evaluate               0.14     2019-05-28 [1] CRAN (R 4.1.2)
+ fansi                  0.5.0    2021-05-25 [1] CRAN (R 4.1.2)
+ farver                 2.1.0    2021-02-28 [1] CRAN (R 4.1.2)
+ fastmap                1.1.0    2021-01-25 [1] CRAN (R 4.1.2)
+ genefilter             1.76.0   2021-10-26 [1] Bioconductor
+ geneplotter            1.72.0   2021-10-26 [1] Bioconductor
+ generics               0.1.1    2021-10-25 [1] CRAN (R 4.1.2)
+ GenomeInfoDb         * 1.30.0   2021-10-26 [1] Bioconductor
+ GenomeInfoDbData       1.2.7    2021-12-27 [1] Bioconductor
+ GenomicRanges        * 1.46.1   2021-11-18 [1] Bioconductor
+ ggplot2              * 3.3.5    2021-06-25 [1] CRAN (R 4.1.2)
+ glue                   1.6.0    2021-12-17 [1] CRAN (R 4.1.2)
+ gtable                 0.3.0    2019-03-25 [1] CRAN (R 4.1.2)
+ hms                    1.1.1    2021-09-26 [1] CRAN (R 4.1.2)
+ htmltools              0.5.2    2021-08-25 [1] CRAN (R 4.1.2)
+ httr                   1.4.2    2020-07-20 [1] CRAN (R 4.1.2)
+ IRanges              * 2.28.0   2021-10-26 [1] Bioconductor
+ jsonlite               1.7.2    2020-12-09 [1] CRAN (R 4.1.2)
+ KEGGREST               1.34.0   2021-10-26 [1] Bioconductor
+ knitr                  1.37     2021-12-16 [1] CRAN (R 4.1.2)
+ labeling               0.4.2    2020-10-20 [1] CRAN (R 4.1.1)
+ lattice                0.20-45  2021-09-22 [2] CRAN (R 4.1.2)
+ lifecycle              1.0.1    2021-09-24 [1] CRAN (R 4.1.2)
+ locfit                 1.5-9.4  2020-03-25 [1] CRAN (R 4.1.2)
+ magrittr             * 2.0.1    2020-11-17 [1] CRAN (R 4.1.2)
+ Matrix                 1.3-4    2021-06-01 [2] CRAN (R 4.1.2)
+ MatrixGenerics       * 1.6.0    2021-10-26 [1] Bioconductor
+ matrixStats          * 0.61.0   2021-09-17 [1] CRAN (R 4.1.2)
+ memoise                2.0.1    2021-11-26 [1] CRAN (R 4.1.2)
+ munsell                0.5.0    2018-06-12 [1] CRAN (R 4.1.2)
+ openssl                1.4.6    2021-12-19 [1] CRAN (R 4.1.2)
+ pillar                 1.6.4    2021-10-18 [1] CRAN (R 4.1.2)
+ pkgconfig              2.0.3    2019-09-22 [1] CRAN (R 4.1.2)
+ png                    0.1-7    2013-12-03 [1] CRAN (R 4.1.1)
+ purrr                  0.3.4    2020-04-17 [1] CRAN (R 4.1.2)
+ R6                     2.5.1    2021-08-19 [1] CRAN (R 4.1.2)
+ RColorBrewer           1.1-2    2014-12-07 [1] CRAN (R 4.1.1)
+ Rcpp                   1.0.7    2021-07-07 [1] CRAN (R 4.1.2)
+ RCurl                  1.98-1.5 2021-09-17 [1] CRAN (R 4.1.1)
+ readr                  2.1.1    2021-11-30 [1] CRAN (R 4.1.2)
+ reticulate             1.22     2021-09-17 [1] CRAN (R 4.1.2)
+ rlang                  0.4.12   2021-10-18 [1] CRAN (R 4.1.2)
+ rmarkdown              2.11     2021-09-14 [1] CRAN (R 4.1.2)
+ RSpectra               0.16-0   2019-12-01 [1] CRAN (R 4.1.2)
+ RSQLite                2.2.9    2021-12-06 [1] CRAN (R 4.1.2)
+ rstudioapi             0.13     2020-11-12 [1] CRAN (R 4.1.2)
+ S4Vectors            * 0.32.3   2021-11-21 [1] Bioconductor
+ scales                 1.1.1    2020-05-11 [1] CRAN (R 4.1.2)
+ sessioninfo            1.2.2    2021-12-06 [1] CRAN (R 4.1.2)
+ stringi                1.7.6    2021-11-29 [1] CRAN (R 4.1.2)
+ stringr              * 1.4.0    2019-02-10 [1] CRAN (R 4.1.2)
+ SummarizedExperiment * 1.24.0   2021-10-26 [1] Bioconductor
+ survival               3.2-13   2021-08-24 [2] CRAN (R 4.1.2)
+ tibble                 3.1.6    2021-11-07 [1] CRAN (R 4.1.2)
+ tidyselect             1.1.1    2021-04-30 [1] CRAN (R 4.1.2)
+ tzdb                   0.2.0    2021-10-27 [1] CRAN (R 4.1.2)
+ umap                 * 0.2.7.0  2020-11-04 [1] CRAN (R 4.1.2)
+ utf8                   1.2.2    2021-07-24 [1] CRAN (R 4.1.2)
+ vctrs                  0.3.8    2021-04-29 [1] CRAN (R 4.1.2)
+ vroom                  1.5.7    2021-11-30 [1] CRAN (R 4.1.2)
+ withr                  2.4.3    2021-11-30 [1] CRAN (R 4.1.2)
+ xfun                   0.29     2021-12-14 [1] CRAN (R 4.1.2)
+ XML                    3.99-0.8 2021-09-17 [1] CRAN (R 4.1.1)
+ xtable                 1.8-4    2019-04-21 [1] CRAN (R 4.1.2)
+ XVector                0.34.0   2021-10-26 [1] Bioconductor
+ yaml                   2.2.1    2020-02-01 [1] CRAN (R 4.1.1)
+ zlibbioc               1.40.0   2021-10-26 [1] Bioconductor
+
+ [1] C:/Users/omruk/Documents/R/win-library/4.1
+ [2] C:/Program Files/R/R-4.1.2/library
+
+---
+PART 2: HCLUST
+---
+Hierarchical cluster analysis which is a method of cluster analysis that builds clusters, meaning it shows relationships between our tested data. It can be illustrated in the form of a dendrogram. There are different methods to use with `hclust`. Here I will test 3 and choose which one would be the most appropriate for my set of data.
+
+For some of these the packages needed:
+For this these packages are needed:
+>pheatmap
+>rafalib
+>DESeq2
+>pvclust
+>biomaRt
+
+```{r}
+if (!("pheatmap" %in% installed.packages())) {
+     BiocManager::install("pheatmap", update = FALSE)
+}
+ 
+if (!("rafalib" %in% installed.packages())) {
+     BiocManager::install("rafalib", update = FALSE)
+}
+
+if (!("DESeq2" %in% installed.packages())) {
+     BiocManager::install("DESeq2", update = FALSE)
+}
+  
+if (!("pvclust" %in% installed.packages())) {
+      BiocManager::install("pvclust", update = FALSE)
+}
+     
+if (!("biomaRt" %in% installed.packages())) {
+        BiocManager::install("biomaRt", update = FALSE)
+}
+```
+#adding to libary
+```{r}
+library(pheatmap)
+library(rafalib)
+library(DESeq2)
+library(pvclust)
+library(biomaRt)
+```
+
+
+#complete
+```{r}
+hc <- hclust(dist(normalized_counts))
+```
+
+#average
+```{r}
+hca <- hclust(dist(normalized_counts), "ave") 
+```
+
+#centroid and clusters
+```{r}
+hcc <- hclust(dist(normalized_counts)^2, "cen")
+memb <- cutree(hcc, k = 10)
+cent <- NULL
+for(k in 1:10){
+     cent <- rbind(cent, colMeans(normalized_counts[memb == k, , drop = FALSE]))
+}
+hc1 <- hclust(dist(cent)^2, method = "cen", members = table(memb))
+opar <- par(mfrow = c(1, 2))
+plot(hcc, hang = -1,cex=0.6, main = "Original Tree")
+plot(hc1, hang = -1, main = "Re-start from 10 clusters")
+par(opar)
+```
+
+#complete and clusters
+```{r}
+hccom <- hclust(dist(normalized_counts), "com")
+memb <- cutree(hccom, k = 10)
+comp <- NULL
+for(k in 1:10){
+     comp <- rbind(comp, colMeans(normalized_counts[memb == k, , drop = FALSE]))
+}
+hc2 <- hclust(dist(comp), method = "com", members = table(memb))
+opar <- par(mfrow = c(1, 2))
+
+
+hccom <- hclust(dist(normalized_counts), "com")
+memb <- cutree(hccom, k = 5)
+comp <- NULL
+for(k in 1:5){
+     comp <- rbind(comp, colMeans(normalized_counts[memb == k, , drop = FALSE]))
+}
+hc3 <- hclust(dist(comp), method = "com", members = table(memb))
+opar <- par(mfrow = c(1, 2))
+
+
+plot(hc2, hang = -1, main = "Re-start from 10 clusters")
+plot(hc3, hang = -1, main = "Re-start from 5 clusters")
+par(opar)
+```
+Here I chose to only pplot the re-starts, as the 'hccom' plot is quite big and better to illustrate on its own.
+
+
+#clusters on complete
+```{r}
+gene_clusters <- cutree(hccom, k = 5)
+gene_clusters
+
+mypar(1,1,mar=c(6,4,2,1))
+plot( as.dendrogram(hccom) , las=1, main="d=correlation\nh=complete" )
+
+rect.hclust(hccom, k = 5)
+abline(h = HEIGHT, col="red", lty=2)
+points(1:length(gene_clusters) ,rep(0,length(gene_clusters)), pch= 16, cex=2, col=factor(gene_clusters)[hccom$order] )
+legend( "topright", levels(factor(gene_clusters)) , pch = 16, col =  factor(levels(factor(gene_clusters))) )
+```
+This plot shows clusters grouped on the whole dendrogram, as opposed to simplifying it (like I tried above).
+
+---
+SESSION INFO
+--- 
+setting  value
+ version  R version 4.1.2 (2021-11-01)
+ os       Windows 10 x64 (build 19043)
+ system   x86_64, mingw32
+ ui       RStudio
+ language (EN)
+ collate  English_Europe.1252
+ ctype    English_Europe.1252
+ tz       Europe/Berlin
+ date     2022-01-26
+ rstudio  2021.09.1+372 Ghost Orchid (desktop)
+ pandoc   2.14.0.3 @ C:/Program Files/RStudio/bin/pandoc/ (via rmarkdown)
+
+- Packages ----------------------------------------------------------------------------------------------------------------------
+ package              * version  date (UTC) lib source
+ annotate               1.72.0   2021-10-26 [1] Bioconductor
+ AnnotationDbi          1.56.2   2021-11-09 [1] Bioconductor
+ askpass                1.1      2019-01-13 [1] CRAN (R 4.1.2)
+ assertthat             0.2.1    2019-03-21 [1] CRAN (R 4.1.2)
+ Biobase              * 2.54.0   2021-10-26 [1] Bioconductor
+ BiocGenerics         * 0.40.0   2021-10-26 [1] Bioconductor
+ BiocManager            1.30.16  2021-06-15 [1] CRAN (R 4.1.2)
+ BiocParallel           1.28.3   2021-12-09 [1] Bioconductor
+ Biostrings             2.62.0   2021-10-26 [1] Bioconductor
+ bit                    4.0.4    2020-08-04 [1] CRAN (R 4.1.2)
+ bit64                  4.0.5    2020-08-30 [1] CRAN (R 4.1.2)
+ bitops                 1.0-7    2021-04-24 [1] CRAN (R 4.1.1)
+ blob                   1.2.2    2021-07-23 [1] CRAN (R 4.1.2)
+ cachem                 1.0.6    2021-08-19 [1] CRAN (R 4.1.2)
+ cli                    3.1.0    2021-10-27 [1] CRAN (R 4.1.2)
+ colorspace             2.0-2    2021-06-24 [1] CRAN (R 4.1.2)
+ crayon                 1.4.2    2021-10-29 [1] CRAN (R 4.1.2)
+ DBI                    1.1.2    2021-12-20 [1] CRAN (R 4.1.2)
+ DelayedArray           0.20.0   2021-10-26 [1] Bioconductor
+ DESeq2               * 1.34.0   2021-10-26 [1] Bioconductor
+ digest                 0.6.29   2021-12-01 [1] CRAN (R 4.1.2)
+ dplyr                  1.0.7    2021-06-18 [1] CRAN (R 4.1.2)
+ ellipsis               0.3.2    2021-04-29 [1] CRAN (R 4.1.2)
+ evaluate               0.14     2019-05-28 [1] CRAN (R 4.1.2)
+ fansi                  0.5.0    2021-05-25 [1] CRAN (R 4.1.2)
+ fastmap                1.1.0    2021-01-25 [1] CRAN (R 4.1.2)
+ genefilter             1.76.0   2021-10-26 [1] Bioconductor
+ geneplotter            1.72.0   2021-10-26 [1] Bioconductor
+ generics               0.1.1    2021-10-25 [1] CRAN (R 4.1.2)
+ GenomeInfoDb         * 1.30.0   2021-10-26 [1] Bioconductor
+ GenomeInfoDbData       1.2.7    2021-12-27 [1] Bioconductor
+ GenomicRanges        * 1.46.1   2021-11-18 [1] Bioconductor
+ ggplot2                3.3.5    2021-06-25 [1] CRAN (R 4.1.2)
+ glue                   1.6.0    2021-12-17 [1] CRAN (R 4.1.2)
+ gtable                 0.3.0    2019-03-25 [1] CRAN (R 4.1.2)
+ hms                    1.1.1    2021-09-26 [1] CRAN (R 4.1.2)
+ htmltools              0.5.2    2021-08-25 [1] CRAN (R 4.1.2)
+ httr                   1.4.2    2020-07-20 [1] CRAN (R 4.1.2)
+ IRanges              * 2.28.0   2021-10-26 [1] Bioconductor
+ jsonlite               1.7.2    2020-12-09 [1] CRAN (R 4.1.2)
+ KEGGREST               1.34.0   2021-10-26 [1] Bioconductor
+ knitr                  1.37     2021-12-16 [1] CRAN (R 4.1.2)
+ lattice                0.20-45  2021-09-22 [2] CRAN (R 4.1.2)
+ lifecycle              1.0.1    2021-09-24 [1] CRAN (R 4.1.2)
+ locfit                 1.5-9.4  2020-03-25 [1] CRAN (R 4.1.2)
+ magrittr               2.0.1    2020-11-17 [1] CRAN (R 4.1.2)
+ Matrix                 1.3-4    2021-06-01 [2] CRAN (R 4.1.2)
+ MatrixGenerics       * 1.6.0    2021-10-26 [1] Bioconductor
+ matrixStats          * 0.61.0   2021-09-17 [1] CRAN (R 4.1.2)
+ memoise                2.0.1    2021-11-26 [1] CRAN (R 4.1.2)
+ munsell                0.5.0    2018-06-12 [1] CRAN (R 4.1.2)
+ openssl                1.4.6    2021-12-19 [1] CRAN (R 4.1.2)
+ pillar                 1.6.4    2021-10-18 [1] CRAN (R 4.1.2)
+ pkgconfig              2.0.3    2019-09-22 [1] CRAN (R 4.1.2)
+ png                    0.1-7    2013-12-03 [1] CRAN (R 4.1.1)
+ purrr                  0.3.4    2020-04-17 [1] CRAN (R 4.1.2)
+ R6                     2.5.1    2021-08-19 [1] CRAN (R 4.1.2)
+ RColorBrewer           1.1-2    2014-12-07 [1] CRAN (R 4.1.1)
+ Rcpp                   1.0.7    2021-07-07 [1] CRAN (R 4.1.2)
+ RCurl                  1.98-1.5 2021-09-17 [1] CRAN (R 4.1.1)
+ readr                  2.1.1    2021-11-30 [1] CRAN (R 4.1.2)
+ reticulate             1.22     2021-09-17 [1] CRAN (R 4.1.2)
+ rlang                  0.4.12   2021-10-18 [1] CRAN (R 4.1.2)
+ rmarkdown              2.11     2021-09-14 [1] CRAN (R 4.1.2)
+ RSpectra               0.16-0   2019-12-01 [1] CRAN (R 4.1.2)
+ RSQLite                2.2.9    2021-12-06 [1] CRAN (R 4.1.2)
+ rstudioapi             0.13     2020-11-12 [1] CRAN (R 4.1.2)
+ S4Vectors            * 0.32.3   2021-11-21 [1] Bioconductor
+ scales                 1.1.1    2020-05-11 [1] CRAN (R 4.1.2)
+ sessioninfo            1.2.2    2021-12-06 [1] CRAN (R 4.1.2)
+ SummarizedExperiment * 1.24.0   2021-10-26 [1] Bioconductor
+ survival               3.2-13   2021-08-24 [2] CRAN (R 4.1.2)
+ tibble                 3.1.6    2021-11-07 [1] CRAN (R 4.1.2)
+ tidyselect             1.1.1    2021-04-30 [1] CRAN (R 4.1.2)
+ tzdb                   0.2.0    2021-10-27 [1] CRAN (R 4.1.2)
+ umap                   0.2.7.0  2020-11-04 [1] CRAN (R 4.1.2)
+ utf8                   1.2.2    2021-07-24 [1] CRAN (R 4.1.2)
+ vctrs                  0.3.8    2021-04-29 [1] CRAN (R 4.1.2)
+ xfun                   0.29     2021-12-14 [1] CRAN (R 4.1.2)
+ XML                    3.99-0.8 2021-09-17 [1] CRAN (R 4.1.1)
+ xtable                 1.8-4    2019-04-21 [1] CRAN (R 4.1.2)
+ XVector                0.34.0   2021-10-26 [1] Bioconductor
+ yaml                   2.2.1    2020-02-01 [1] CRAN (R 4.1.1)
+ zlibbioc               1.40.0   2021-10-26 [1] Bioconductor
+    
