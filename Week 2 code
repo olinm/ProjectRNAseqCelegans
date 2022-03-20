@@ -1,0 +1,436 @@
+#WEEK 2
+
+---
+TITLE: "Oliwia's RNASeq notebook: part 2"
+---
+
+@ marks the places where the design or annotation has to be changed to evaluate the data with different variables.
+
+---
+RStudio info
+---
+platform       x86_64-w64-mingw32          
+arch           x86_64                      
+os             mingw32                     
+system         x86_64, mingw32             
+status                                     
+major          4                           
+minor          1.2                         
+year           2021                        
+month          11                          
+day            01                          
+svn rev        81115                       
+language       R                           
+version.string R version 4.1.2 (2021-11-01)
+nickname       Bird Hippie  
+
+Base packages:
+>Bioconductor
+>tidyverse
+>devtools
+
+---
+PART 1: DE testing basics - data preparation
+---
+#install packages
+```{r}
+if (!("DESeq2" %in% installed.packages())) {
+  # Install DESeq2
+  BiocManager::install("DESeq2", update = FALSE)
+}
+
+if (!("stringr" %in% installed.packages())) {
+  # Install stringr package
+  BiocManager::install("stringr", update = FALSE)
+}
+
+if (!("dplyr" %in% installed.packages())) {
+  # Install dplyr
+  install.packages("dplyr", update = FALSE)
+}
+
+if (!("ggplot2" %in% installed.packages())) {
+  # Install ggplot2 package
+  install.packages("ggplot2", update = FALSE)
+}
+```
+
+#attach the packages
+```{r}
+library(DESeq2)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+```
+#setting up analysis folders
+```{r}
+#Create the data folder if it doesn't exist
+if (!dir.exists("data")) {
+  dir.create("data")
+}
+
+# Define the file path to the plots directory
+plots_dir <- "plots"
+
+#Create the plots folder if it doesn't exist
+if (!dir.exists(plots_dir)) {
+  dir.create(plots_dir)
+}
+```
+
+#define file paths to the directory
+```{r}
+#data directory path
+data_dir <- file.path("data", "dir")
+
+#data path
+data_file <- file.path(data_dir, "cnt_clean.csv")
+
+#metadata path
+metadata_file <- file.path(data_dir, "cond_clean.csv")
+```
+
+#double check if the files are present at the paths defined
+```{r}
+file.exists(data_file)
+
+file.exists(metadata_file)
+```
+Should return `TRUE`
+
+#import and setup data
+```{r}
+# Read in and open metadata CSV file
+cond_clean <- read.csv("~/DEtesting/data/dir/cond_clean.csv", header=FALSE)
+View(cond_clean)
+
+# Read in and open data table file
+cnt_clean <- read.table("~/DEtesting/data/dir/cnt_clean.csv", quote="\"", comment.char="")
+View(cnt_clean)
+```
+
+#organize the table for `cond_clean`
+```{r}
+ cond_clean[1,1]="sample" #adds title for samples
+colnames(cond_clean) <- cond_clean[1,] #moves the names from 1 to column names
+cond_clean <- cond_clean[-1,] #removes extra row
+cond_clean$h2s_conc <- str_replace(cond_clean$h2s_conc, "con", "50") #replaces the `con` to `50` in `h2s_conc`
+```
+
+#put metadata and data in the same sample order
+```{r}
+# Make the data in the order of the metadata
+cnt_clean <- cnt_clean %>%
+  dplyr::select(cond_clean$sample)
+
+# Check if this is in the same order
+all.equal(colnames(cnt_clean), cond_clean$sample)
+```
+Should return `TRUE`
+
+---
+UNDERSTANDING DATA & TRANSFORMATIONS
+---
+
+#`summary` and `colSums`, just to look at the reads
+```{r eval=FALSE, include=FALSE}
+summary(cnt_clean)
+colSums(cnt_clean) #wide range, DESeq will use this to calculate differential genes
+```
+
+
+#barplot
+to get a visual of how the data looks like (just for reference, there is too many samples to visualize all)
+DESeq wil normalize those counts
+```{r eval=FALSE, include=FALSE}
+barplot(colSums(cnt_clean), las=3)
+```
+
+#histogram
+of the first sample to see how many genes have 0
+```{r eval=FALSE, include=FALSE}
+hist(cnt_clean$H2S_1_4, br=100)
+```
+
+#and how to fix the histogram
+since this histogram is difficult to interpet, it can be fixed with transformation (log2 transform) - brings higher numbers lower for easier interpretations
+```{r eval=FALSE, include=FALSE}
+logcnt <- log2(1+cnt_clean)
+hist(logcnt$H2S_1_4, br=100)
+```
+
+#plot replicates
+to test whether they are similar (should be 45 degree angle)
+will do just the first one to test out - here with H2S_8_1 and H2S_8_2
+```{r eval=FALSE, include=FALSE}
+plot(logcnt[,5], logcnt[,6], xlab='H2S_8_1', ylab='H2S_8_2')
+
+```
+
+---
+DESeq2 PREP & SOME TEST PLOTS (visualizing counts data)
+---
+  Based on: https://www.youtube.com/watch?v=5z_1ziS0-5w
+
+#building DESeq2 object
+tying data and metadata together for annotation purposes
+same thing as in WEEK 1
+the difference here will be that h2s_conc and time will be used
+
+#@prepare metadata for `DESeq2`
+Metadata I will use needs to be converted into factors. I am choosing only columns I want to use to annotate my plot.
+Depending on what I want to look at I will change the columns selected, by default I chose `time` and '`h2s_conc`, since it is what I wanted to look at first.
+```{r}
+# convert the columns we will be using for annotation into factors
+cond_clean1 <- cond_clean %>%
+  dplyr::select( #only columns I will use for this plot
+    sample,
+    time,
+    h2s_conc
+  ) %>%
+  dplyr::mutate( #converts the variables into factors
+    h2s_conc = factor(
+      h2s_conc,
+      levels = c("0", "50", "150")
+      ),
+    time = factor(
+      time,
+      # specify the possible levels in the order we want them to appear
+      levels = c("0", "1", "2", "4", "6", "8", "10", "12", "16", "24", "48")
+    )
+  )
+```
+
+#minimum counts cutoff
+To eliminate noise concerned with low expression counts a cutoff is performed. In this example, only genes with 10 or more reads total will be kept.
+```{r}
+filtered_cnt <- cnt_clean %>%
+  dplyr::filter(rowSums(.) >= 10)
+```
+
+#round counts
+The counts from `filtered_cnt` need to be rounded before 'DESeqDataSetFromMatrix()` can be used since it needs the values to be integers.
+```{r}
+filtered_cnt <- round(filtered_cnt)
+```
+
+#@create a DESeqDataSet
+In here and later on, depending on what I want to look at, I will change the design. By default I set it to `~time`.
+```{r}
+# Create a `DESeqDataSet` object
+dds <- DESeqDataSetFromMatrix(
+  countData = filtered_cnt, #values for the samples
+  colData = cond_clean1, #annotation data for the samples in the counts data frame
+  design = ~time #differences between times
+)
+```
+
+#convert to DESeq object
+```{r}
+dds <- DESeq(dds)
+nrow(dds) #needs to be the same as input countData - in this case `filtered_cnt`
+```
+#@PCA plot
+Dimension reduction, just to test (comparison to UMAP - UMAP slower but better for larger data sets, it gives better quality results)
+```{r eval=FALSE, include=FALSE}
+dds_norm <- vst(dds)
+plotPCA(dds_norm, intgroup= "time")
+```
+
+#heatmap
+Maybe? Is my dataset too large to do a heatmap for interpretation?
+Would have to be organized a bit more
+```{r eval=FALSE, include=FALSE}
+normalized_counts <- assay(dds_norm)
+heatmap(normalized_counts)
+```
+
+---
+DE TESTING
+---
+Finding differentially expressed genes
+  Based on: https://www.youtube.com/watch?v=ZjMfiPLuwN4&t=209s
+  
+#set up dds results
+```{r}
+res <- results(dds, lfcThreshold=0.01) #removing small, not significant results
+head(res)
+summary(res)
+```
+#@MA plot
+```{r}
+DESeq2::plotMA(res, ylim=c(-5,5), main="MA plot for design=~time")
+```
+In the plot, the blue points mark significant genes and grey are insignificant based on the DESeq calculation. Points above the line have a positive log fold change and points below the line will have a negative log fold change, as can be seen in the y-axis - that means that above the genes will be up regulated and below they will be down regulated.
+
+#significance based on `padj` and `log2FoldChange`
+```{r}
+res1 <- as.data.frame(res) #modify the res table by first creating a data frame to duplicate the res table (keeping the original unchanged)
+res1 <- mutate(res1, Sig=ifelse(res1$padj<0.1, "FDR<0.1", "Not Sig" )) #if the `padj` is less than 0.1 then = "FDR<0.1", if `padj` is more than 0.1 then = "Not sig"
+#FDR - False Discovery Rate - the proportion of all discoveries which are false
+res1[which(abs(res1$log2FoldChange)<1.0), "Sig"]="Not Sig" #if greater than 1.0 ="Sig", if not then ="Not Sig"
+#fold change - log fold change of 1 means one group has twice as many reads as the other group
+```
+
+#@GG plot visualizing the `res1` table
+```{r}
+ggplot(res1, aes(log2FoldChange, -log10(padj)))+geom_point(aes(col=Sig))+scale_color_manual(values=c("green","red"))+ggtitle("Plot for design=~time") 
+#visualizing `log2FoldChange` and -log10 of `padj`, -log10 used for easier interpretation
+#significant in green and non significant in red
+```
+Significant genes in the broad sense
+
+#looking at particular genes
+In this case I will be looking at the gene with the highest log2FoldChange
+```{r}
+#sorting results by the highest to lowest log2FoldChange
+res <- res[order(abs(res$log2FoldChange),decreasing=TRUE),]
+View(as.data.frame(res)) #viewing the table
+topGene <- row.names(res)[1]
+```
+
+#@plot the counts from dds
+```{r}
+plotCounts(dds, gene=topGene, intgroup= "time", main="topGene for design=~time")
+```
+#@Dispersion plot
+This function plots per-gene dispersion estimated together with the fitted mean-dispersion relationship.
+```{r}
+plotDispEsts( dds, ylim = c(1e-6, 1e3), main="for design=~time" )
+```
+
+#independent filtering
+Could be done for weakly expressed genes in order to improve our results quality - the insignificant genes can then be removed and the ones weakly expressed can be included in the research.
+
+#barplot for value visualization
+```{r}
+# create bins using the quantile function
+qs <- c( 0, quantile( res$baseMean[res$baseMean > 0], 0:7/7 ) )
+# "cut" the genes into the bins
+bins <- cut( res$baseMean, qs )
+# rename the levels of the bins using the middle point
+levels(bins) <- paste0("~",round(.5*qs[-1] + .5*qs[-length(qs)]))
+# calculate the ratio of p values less than .01 for each bin
+ratios <- tapply( res$pvalue, bins, function(p) mean( p < .01, na.rm=TRUE ) )
+# plot these ratios
+barplot(ratios, xlab="mean normalized count", ylab="ratio of small p values")
+```
+
+#filterThreshold
+```{r}
+metadata(res)$filterThreshold
+#this shows the numbers of:
+#this % of genes were filtered out of the analysis
+#DESeq has filtered out genes with this mean count
+
+metadata(res)$alpha
+#alpha - significance level
+```
+
+#plot of the inddependent filtering
+```{r}
+
+```plot(metadata(res)$filterNumRej,
+     type="b", ylab="number of rejections", xlab="quantiles of filter")
+lines(metadata(res)$lo.fit, col="red")
+abline(v=metadata(res)$filterTheta)
+
+---
+SESSION INFO
+---
+ setting  value
+ version  R version 4.1.2 (2021-11-01)
+ os       Windows 10 x64 (build 19043)
+ system   x86_64, mingw32
+ ui       RStudio
+ language (EN)
+ collate  English_Europe.1252
+ ctype    English_Europe.1252
+ tz       Europe/Berlin
+ date     2022-01-31
+ rstudio  2021.09.1+372 Ghost Orchid (desktop)
+ pandoc   2.14.0.3 @ C:/Program Files/RStudio/bin/pandoc/ (via rmarkdown)
+
+- Packages --------------------------------------------------------------------------------------------------------------------------------
+ package              * version  date (UTC) lib source
+ annotate               1.72.0   2021-10-26 [1] Bioconductor
+ AnnotationDbi          1.56.2   2021-11-09 [1] Bioconductor
+ assertthat             0.2.1    2019-03-21 [1] CRAN (R 4.1.2)
+ Biobase              * 2.54.0   2021-10-26 [1] Bioconductor
+ BiocGenerics         * 0.40.0   2021-10-26 [1] Bioconductor
+ BiocManager            1.30.16  2021-06-15 [1] CRAN (R 4.1.2)
+ BiocParallel           1.28.3   2021-12-09 [1] Bioconductor
+ Biostrings             2.62.0   2021-10-26 [1] Bioconductor
+ bit                    4.0.4    2020-08-04 [1] CRAN (R 4.1.2)
+ bit64                  4.0.5    2020-08-30 [1] CRAN (R 4.1.2)
+ bitops                 1.0-7    2021-04-24 [1] CRAN (R 4.1.1)
+ blob                   1.2.2    2021-07-23 [1] CRAN (R 4.1.2)
+ cachem                 1.0.6    2021-08-19 [1] CRAN (R 4.1.2)
+ cli                    3.1.0    2021-10-27 [1] CRAN (R 4.1.2)
+ colorspace             2.0-2    2021-06-24 [1] CRAN (R 4.1.2)
+ crayon                 1.4.2    2021-10-29 [1] CRAN (R 4.1.2)
+ DBI                    1.1.2    2021-12-20 [1] CRAN (R 4.1.2)
+ DelayedArray           0.20.0   2021-10-26 [1] Bioconductor
+ DESeq2               * 1.34.0   2021-10-26 [1] Bioconductor
+ digest                 0.6.29   2021-12-01 [1] CRAN (R 4.1.2)
+ dplyr                * 1.0.7    2021-06-18 [1] CRAN (R 4.1.2)
+ ellipsis               0.3.2    2021-04-29 [1] CRAN (R 4.1.2)
+ evaluate               0.14     2019-05-28 [1] CRAN (R 4.1.2)
+ fansi                  0.5.0    2021-05-25 [1] CRAN (R 4.1.2)
+ fastmap                1.1.0    2021-01-25 [1] CRAN (R 4.1.2)
+ genefilter             1.76.0   2021-10-26 [1] Bioconductor
+ geneplotter            1.72.0   2021-10-26 [1] Bioconductor
+ generics               0.1.1    2021-10-25 [1] CRAN (R 4.1.2)
+ GenomeInfoDb         * 1.30.0   2021-10-26 [1] Bioconductor
+ GenomeInfoDbData       1.2.7    2021-12-27 [1] Bioconductor
+ GenomicRanges        * 1.46.1   2021-11-18 [1] Bioconductor
+ ggplot2              * 3.3.5    2021-06-25 [1] CRAN (R 4.1.2)
+ glue                   1.6.0    2021-12-17 [1] CRAN (R 4.1.2)
+ gtable                 0.3.0    2019-03-25 [1] CRAN (R 4.1.2)
+ htmltools              0.5.2    2021-08-25 [1] CRAN (R 4.1.2)
+ httr                   1.4.2    2020-07-20 [1] CRAN (R 4.1.2)
+ IRanges              * 2.28.0   2021-10-26 [1] Bioconductor
+ KEGGREST               1.34.0   2021-10-26 [1] Bioconductor
+ knitr                  1.37     2021-12-16 [1] CRAN (R 4.1.2)
+ lattice                0.20-45  2021-09-22 [2] CRAN (R 4.1.2)
+ lifecycle              1.0.1    2021-09-24 [1] CRAN (R 4.1.2)
+ locfit                 1.5-9.4  2020-03-25 [1] CRAN (R 4.1.2)
+ magrittr               2.0.1    2020-11-17 [1] CRAN (R 4.1.2)
+ Matrix                 1.3-4    2021-06-01 [2] CRAN (R 4.1.2)
+ MatrixGenerics       * 1.6.0    2021-10-26 [1] Bioconductor
+ matrixStats          * 0.61.0   2021-09-17 [1] CRAN (R 4.1.2)
+ memoise                2.0.1    2021-11-26 [1] CRAN (R 4.1.2)
+ munsell                0.5.0    2018-06-12 [1] CRAN (R 4.1.2)
+ pillar                 1.6.4    2021-10-18 [1] CRAN (R 4.1.2)
+ pkgconfig              2.0.3    2019-09-22 [1] CRAN (R 4.1.2)
+ png                    0.1-7    2013-12-03 [1] CRAN (R 4.1.1)
+ purrr                  0.3.4    2020-04-17 [1] CRAN (R 4.1.2)
+ R6                     2.5.1    2021-08-19 [1] CRAN (R 4.1.2)
+ RColorBrewer           1.1-2    2014-12-07 [1] CRAN (R 4.1.1)
+ Rcpp                   1.0.7    2021-07-07 [1] CRAN (R 4.1.2)
+ RCurl                  1.98-1.5 2021-09-17 [1] CRAN (R 4.1.1)
+ rlang                  0.4.12   2021-10-18 [1] CRAN (R 4.1.2)
+ rmarkdown              2.11     2021-09-14 [1] CRAN (R 4.1.2)
+ RSQLite                2.2.9    2021-12-06 [1] CRAN (R 4.1.2)
+ rstudioapi             0.13     2020-11-12 [1] CRAN (R 4.1.2)
+ S4Vectors            * 0.32.3   2021-11-21 [1] Bioconductor
+ scales                 1.1.1    2020-05-11 [1] CRAN (R 4.1.2)
+ sessioninfo            1.2.2    2021-12-06 [1] CRAN (R 4.1.2)
+ stringi                1.7.6    2021-11-29 [1] CRAN (R 4.1.2)
+ stringr              * 1.4.0    2019-02-10 [1] CRAN (R 4.1.2)
+ SummarizedExperiment * 1.24.0   2021-10-26 [1] Bioconductor
+ survival               3.2-13   2021-08-24 [2] CRAN (R 4.1.2)
+ tibble                 3.1.6    2021-11-07 [1] CRAN (R 4.1.2)
+ tidyselect             1.1.1    2021-04-30 [1] CRAN (R 4.1.2)
+ utf8                   1.2.2    2021-07-24 [1] CRAN (R 4.1.2)
+ vctrs                  0.3.8    2021-04-29 [1] CRAN (R 4.1.2)
+ withr                  2.4.3    2021-11-30 [1] CRAN (R 4.1.2)
+ xfun                   0.29     2021-12-14 [1] CRAN (R 4.1.2)
+ XML                    3.99-0.8 2021-09-17 [1] CRAN (R 4.1.1)
+ xtable                 1.8-4    2019-04-21 [1] CRAN (R 4.1.2)
+ XVector                0.34.0   2021-10-26 [1] Bioconductor
+ yaml                   2.2.1    2020-02-01 [1] CRAN (R 4.1.1)
+ zlibbioc               1.40.0   2021-10-26 [1] Bioconductor
+
+ [1] C:/Users/omruk/Documents/R/win-library/4.1
+ [2] C:/Program Files/R/R-4.1.2/library
