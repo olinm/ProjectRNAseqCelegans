@@ -1,0 +1,513 @@
+#WEEK 3-6 + WEEK 7
+
+---
+TITLE: "Oliwia's RNASeq notebook: part 3 & 4"
+---
+
+This notebook part is based on the data in week 2. Part 2 needs to be run first in order to have appropriate data to run this code. All the packages needed here were already downloaded in week 2
+
+Since in week 7 the same concepts, just slightly modified, are explored, part 4 is also included in this notebook.
+
+Data used in this part comes from:
+ChIPseq data - https://parasite.wormbase.org/biomart/martview/425ab6fe500f44bdadc1933379bcb10d
+Motifs - https://jaspar.genereg.net/
+Motif hits (FIMO) - https://meme-suite.org/meme/
+
+---
+RStudio info
+---
+platform       x86_64-w64-mingw32          
+arch           x86_64                      
+os             mingw32                     
+system         x86_64, mingw32             
+status                                     
+major          4                           
+minor          1.3                         
+year           2022                        
+month          03                          
+day            10                          
+svn rev        81868                       
+language       R                           
+version.string R version 4.1.3 (2022-03-10)
+nickname       One Push-Up  
+
+---
+PART 1: SCATTERPLOTS OF TRANSCRIPTION FACTOR COUNTS AND LOG2 FOLD CHANGE - 1000BP
+---
+This will show how the differentially expressed genes and how many TF binding sites each of them have.
+The higher the DE (log 2 fold change), the bigger the difference compared to the control.
+The higher the TF count, the more motifs present where a transcription factor can bind.
+
+#adding sequence names to res1
+Needed for merging the tables later on to create plots.
+```{r}
+res1 <- tibble::rownames_to_column(res1, "sequence_name")
+View(res1)
+```
+
+#modifying the data, preparation for plotting
+All the TF data needs to be modified and merged with the log2 fold change data from week 2 to construct scatterplots for analysis. This is done to all 5 transcription factors of interest below.
+
+#HIF1AHITS
+```{r}
+hifcount <- as.data.frame(HIF1AHITS %>% group_by(sequence_name) %>% summarise(TF_count = n()))
+hifcount <- hifcount[-1,]
+```
+
+```{r}
+hifcount$sequence_name <- str_remove_all(hifcount$sequence_name,"caenorhabditis_elegans_prjna13758")
+hifcount$sequence_name <- str_remove_all(hifcount$sequence_name,"\\|")
+```
+
+```{r}
+hiftab <- inner_join(x=res1, y=hifcount, by="sequence_name")
+```
+
+```{r eval=FALSE, include=FALSE}
+plot(hiftab$log2FoldChange, hiftab$TF_count, main="HIF1A for design=~time", xlab="log2 fold change", ylab="TF count")
+```
+
+#XBP1HITS
+```{r}
+xbpcount <- as.data.frame(XBP1HITS %>% group_by(sequence_name) %>% summarise(TF_count = n()))
+xbpcount <- xbpcount[-1,]
+```
+
+```{r}
+xbpcount$sequence_name <- str_remove_all(xbpcount$sequence_name,"caenorhabditis_elegans_prjna13758")
+xbpcount$sequence_name <- str_remove_all(xbpcount$sequence_name,"\\|")
+```
+
+```{r}
+xbptab <- inner_join(x=res1, y=xbpcount, by="sequence_name")
+```
+
+```{r eval=FALSE, include=FALSE}
+plot(xbptab$log2FoldChange, xbptab$TF_count,  main="XBP1 for design=~time", xlab="log2 fold change", ylab="TF count")
+```
+
+#skn.1HITS
+```{r}
+skncount <- as.data.frame(skn.1HITS %>% group_by(sequence_name) %>% summarise(TF_count = n()))
+skncount <- skncount[-1,]
+```
+
+```{r}
+skncount$sequence_name <- str_remove_all(skncount$sequence_name,"caenorhabditis_elegans_prjna13758")
+skncount$sequence_name <- str_remove_all(skncount$sequence_name,"\\|")
+```
+
+```{r}
+skntab <- inner_join(x=res1, y=skncount, by="sequence_name")
+```
+
+```{r eval=FALSE, include=FALSE}
+plot(skntab$log2FoldChange, skntab$TF_count,  main="SKN-1 for design=~time", xlab="log2 fold change", ylab="TF count")
+```
+
+#pqm.1HITS
+```{r}
+pqmcount <- as.data.frame(pqm.1HITS %>% group_by(sequence_name) %>% summarise(TF_count = n()))
+pqmcount <- pqmcount[-1,]
+```
+
+```{r}
+pqmcount$sequence_name <- str_remove_all(pqmcount$sequence_name,"caenorhabditis_elegans_prjna13758")
+pqmcount$sequence_name <- str_remove_all(pqmcount$sequence_name,"\\|")
+```
+
+```{r}
+pqmtab <- inner_join(x=res1, y=pqmcount, by="sequence_name")
+```
+
+```{r eval=FALSE, include=FALSE}
+plot(pqmtab$log2FoldChange, pqmtab$TF_count, main="PQM-1 for design=~time", xlab="log2 fold change", ylab="TF count")
+```
+
+
+#PPARAHITS
+```{r}
+pparacount <- as.data.frame(PPARAHITS %>% group_by(sequence_name) %>% summarise(TF_count = n()))
+pparacount <- pparacount[-1,]
+```
+
+```{r}
+pparacount$sequence_name <- str_remove_all(pparacount$sequence_name,"caenorhabditis_elegans_prjna13758")
+pparacount$sequence_name <- str_remove_all(pparacount$sequence_name,"\\|")
+```
+
+```{r}
+pparatab <- inner_join(x=res1, y=pparacount, by="sequence_name")
+```
+
+```{r eval=FALSE, include=FALSE}
+plot(pparatab$log2FoldChange, pparatab$TF_count,  main="PPAR-α for design=~time", xlab="log2 fold change", ylab="TF count")
+```
+
+---
+PART 2: VENN DIAGRAMS - 1000bp
+---
+1. Seeing the overlap between all the TFs. Would there be a gene they have in common?
+2. Is there overlap between the top DE genes and genes present in the transcription factors hits files? RNAseq & ChIPseq comparison
+
+#all TF overlap
+
+#define sets for diagram
+```{r}
+SET1 <- hifcount$sequence_name
+SET2 <- xbpcount$sequence_name
+SET3 <- skncount$sequence_name
+SET4 <- pqmcount$sequence_name
+SET5 <- pparacount$sequence_name
+```
+
+#make the diagram
+```{r}
+v1 <- venn.diagram(list(HIF1A=SET1, XBP1=SET2, SKN1=SET3, PQM1=SET4, PPARa=SET5),
+                   fill = c("red", "orange", "yellow", "green", "blue"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5, 0.5, 0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramALLTFs.jpg")
+grid.newpage()
+grid.draw(v1)
+dev.off()
+```
+
+#top DE genes and TF (separate)
+
+#define sets for diagram
+Since all TFs have already their sets defined, I am only defining the remaining DE gene set
+```{r}
+SET6 <- res1$sequence_name
+```
+
+#HIF1A diagram
+```{r}
+v2 <- venn.diagram(list(HIF1A=SET1, DEgenes=SET6),
+                   fill = c("red", "purple"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramHIF1A.jpg")
+grid.newpage()
+grid.draw(v2)
+dev.off()
+```
+
+#XBP1 diagram
+```{r}
+v3 <- venn.diagram(list(XBP1=SET2, DEgenes=SET6),
+                   fill = c("orange", "purple"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramXBP1.jpg")
+grid.newpage()
+grid.draw(v3)
+dev.off()
+```
+
+#SKN-1 diagram
+```{r}
+v4 <- venn.diagram(list(SKN1=SET3, DEgenes=SET6),
+                   fill = c("yellow", "purple"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramSKN1.jpg")
+grid.newpage()
+grid.draw(v4)
+dev.off()
+```
+
+#PQM-1 diagram
+```{r}
+v5 <- venn.diagram(list(SKN1=SET4, DEgenes=SET6),
+                   fill = c("green", "purple"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramPQM1.jpg")
+grid.newpage()
+grid.draw(v5)
+dev.off()
+```
+
+#PPARa diagram
+```{r}
+v6 <- venn.diagram(list(SKN1=SET5, DEgenes=SET6),
+                   fill = c("blue", "purple"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramPPARa.jpg")
+grid.newpage()
+grid.draw(v6)
+dev.off()
+```
+
+---
+PART 3: SCATTERPLOTS OF TRANSCRIPTION FACTOR COUNTS AND LOG2 FOLD CHANGE - 300BP
+---
+Everything from part 1 & 2 is repeated in part 3 & 4 is repeated but the flanking gene fragments used are shorter.
+For this one, instead of replacing separate words like in previous notebooks, I will stick to copying previous work and replacing the data permanently so that I do not need to keep switching. (still have not found a solution for quick replacement)
+
+#adding sequence names to res1
+Needed for merging the tables later on to create plots.
+```{r eval=FALSE, include=FALSE}
+res1 <- tibble::rownames_to_column(res1, "sequence_name")
+View(res1) #does not need to be here since already added before but keeping to avoid confusion (if I wanted to run only this part)
+#DO NOT RUN IF RUNNING THE WHOLE NOTEBOOK
+```
+
+#modifying the data, preparation for plotting
+All the TF data needs to be modified and merged with the log2 fold change data from week 2 to construct scatterplots for analysis. This is done to all 5 transcription factors of interest below.
+
+#HIF1AHITS
+```{r}
+hif300count <- as.data.frame(hif300hits %>% group_by(sequence_name) %>% summarise(TF_count = n()))
+hif300count <- hif300count[-1,]
+```
+
+```{r}
+hif300count$sequence_name <- str_remove_all(hif300count$sequence_name,"caenorhabditis_elegans_prjna13758")
+hif300count$sequence_name <- str_remove_all(hif300count$sequence_name,"\\|")
+```
+
+```{r}
+hif300tab <- inner_join(x=res1, y=hif300count, by="sequence_name")
+```
+
+```{r eval=FALSE, include=FALSE}
+plot(hif300tab$log2FoldChange, hif300tab$TF_count, main="HIF1A for design=~time (300bp)", xlab="log2 fold change", ylab="TF count")
+```
+
+#XBP1HITS
+```{r}
+xbp300count <- as.data.frame(xbp300hits %>% group_by(sequence_name) %>% summarise(TF_count = n()))
+xbp300count <- xbp300count[-1,]
+```
+
+```{r}
+xbp300count$sequence_name <- str_remove_all(xbp300count$sequence_name,"caenorhabditis_elegans_prjna13758")
+xbp300count$sequence_name <- str_remove_all(xbp300count$sequence_name,"\\|")
+```
+
+```{r}
+xbp300tab <- inner_join(x=res1, y=xbp300count, by="sequence_name")
+```
+
+```{r eval=FALSE, include=FALSE}
+plot(xbp300tab$log2FoldChange, xbp300tab$TF_count,  main="XBP1 for design=~time (300bp)", xlab="log2 fold change", ylab="TF count")
+```
+
+#skn.1HITS
+```{r}
+skn300count <- as.data.frame(skn300hits %>% group_by(sequence_name) %>% summarise(TF_count = n()))
+skn300count <- skn300count[-1,]
+```
+
+```{r}
+skn300count$sequence_name <- str_remove_all(skn300count$sequence_name,"caenorhabditis_elegans_prjna13758")
+skn300count$sequence_name <- str_remove_all(skn300count$sequence_name,"\\|")
+```
+
+```{r}
+skn300tab <- inner_join(x=res1, y=skn300count, by="sequence_name")
+```
+
+```{r eval=FALSE, include=FALSE}
+plot(skn300tab$log2FoldChange, skn300tab$TF_count,  main="SKN-1 for design=~time (300bp)", xlab="log2 fold change", ylab="TF count")
+```
+
+#pqm.1HITS
+```{r}
+pqm300count <- as.data.frame(pqm300hits %>% group_by(sequence_name) %>% summarise(TF_count = n()))
+pqm300count <- pqm300count[-1,]
+```
+
+```{r}
+pqm300count$sequence_name <- str_remove_all(pqm300count$sequence_name,"caenorhabditis_elegans_prjna13758")
+pqm300count$sequence_name <- str_remove_all(pqm300count$sequence_name,"\\|")
+```
+
+```{r}
+pqm300tab <- inner_join(x=res1, y=pqm300count, by="sequence_name")
+```
+
+```{r eval=FALSE, include=FALSE}
+plot(pqm300tab$log2FoldChange, pqm300tab$TF_count, main="PQM-1 for design=~time (300bp)", xlab="log2 fold change", ylab="TF count")
+```
+
+
+#PPARAHITS
+```{r}
+ppara300count <- as.data.frame(ppa300hits %>% group_by(sequence_name) %>% summarise(TF_count = n()))
+ppara300count <- ppara300count[-1,]
+```
+
+```{r}
+ppara300count$sequence_name <- str_remove_all(ppara300count$sequence_name,"caenorhabditis_elegans_prjna13758")
+ppara300count$sequence_name <- str_remove_all(ppara300count$sequence_name,"\\|")
+```
+
+```{r}
+ppara300tab <- inner_join(x=res1, y=ppara300count, by="sequence_name")
+```
+
+```{r eval=FALSE, include=FALSE}
+plot(ppara300tab$log2FoldChange, ppara300tab$TF_count,  main="PPAR-α for design=~time (300bp)", xlab="log2 fold change", ylab="TF count")
+```
+
+---
+PART 4: VENN DIAGRAMS - 300bp
+---
+1. Seeing the overlap between all the TFs. Would there be a gene they have in common?
+2. Is there overlap between the top DE genes and genes present in the transcription factors hits files? RNAseq & ChIPseq comparison
+
+#all TF overlap
+
+#define sets for diagram
+```{r}
+SET7 <- hif300count$sequence_name
+SET8 <- xbp300count$sequence_name
+SET9 <- skn300count$sequence_name
+SET10 <- pqm300count$sequence_name
+SET11 <- ppara300count$sequence_name
+```
+
+#make the diagram
+```{r}
+v7 <- venn.diagram(list(HIF1A=SET7, XBP1=SET8, SKN1=SET9, PQM1=SET10, PPARa=SET11),
+                   fill = c("red", "orange", "yellow", "green", "blue"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5, 0.5, 0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramALLTFs300.jpg")
+grid.newpage()
+grid.draw(v7)
+dev.off()
+```
+
+#top DE genes and TF (separate)
+
+#define sets for diagram
+Since all TFs have already their sets defined, I am only defining the remaining DE gene set
+```{r}
+SET6 <- res1$sequence_name #does not need to be here since already added but keeping to avoid confusion
+```
+
+#HIF1A diagram
+```{r}
+v8 <- venn.diagram(list(HIF1A=SET7, DEgenes=SET6),
+                   fill = c("red", "purple"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramHIF1A300.jpg")
+grid.newpage()
+grid.draw(v8)
+dev.off()
+```
+
+#XBP1 diagram
+```{r}
+v9 <- venn.diagram(list(XBP1=SET8, DEgenes=SET6),
+                   fill = c("orange", "purple"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramXBP1300.jpg")
+grid.newpage()
+grid.draw(v9)
+dev.off()
+```
+
+#SKN-1 diagram
+```{r}
+v10 <- venn.diagram(list(SKN1=SET9, DEgenes=SET6),
+                   fill = c("yellow", "purple"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramSKN1300.jpg")
+grid.newpage()
+grid.draw(v10)
+dev.off()
+```
+
+#PQM-1 diagram
+```{r}
+v11 <- venn.diagram(list(SKN1=SET10, DEgenes=SET6),
+                   fill = c("green", "purple"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramPQM1300.jpg")
+grid.newpage()
+grid.draw(v11)
+dev.off()
+```
+
+#PPARa diagram
+```{r}
+v12 <- venn.diagram(list(SKN1=SET11, DEgenes=SET6),
+                   fill = c("blue", "purple"),
+                   lty = "blank",
+                   alpha = c(0.5, 0.5),
+                   filename=NULL)
+
+jpeg("venndiagramPPARa300.jpg")
+grid.newpage()
+grid.draw(v12)
+dev.off()
+```
+
+---
+SESSION INFO
+---
+R version 4.1.3 (2022-03-10)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 10 x64 (build 19043)
+
+Matrix products: default
+
+locale:
+[1] LC_COLLATE=English_Europe.1252  LC_CTYPE=English_Europe.1252    LC_MONETARY=English_Europe.1252 LC_NUMERIC=C                   
+[5] LC_TIME=English_Europe.1252    
+
+attached base packages:
+[1] grid      stats4    stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] VennDiagram_1.7.1           futile.logger_1.4.3         BiocManager_1.30.16         ggplot2_3.3.5              
+ [5] stringr_1.4.0               dplyr_1.0.8                 DESeq2_1.34.0               SummarizedExperiment_1.24.0
+ [9] Biobase_2.54.0              MatrixGenerics_1.6.0        matrixStats_0.61.0          GenomicRanges_1.46.1       
+[13] GenomeInfoDb_1.30.1         IRanges_2.28.0              S4Vectors_0.32.3            BiocGenerics_0.40.0        
+
+loaded via a namespace (and not attached):
+ [1] httr_1.4.2             sass_0.4.0             jsonlite_1.8.0         bit64_4.0.5            splines_4.1.3          bslib_0.3.1           
+ [7] blob_1.2.2             GenomeInfoDbData_1.2.7 yaml_2.3.5             pillar_1.7.0           RSQLite_2.2.10         lattice_0.20-45       
+[13] glue_1.6.1             digest_0.6.29          RColorBrewer_1.1-2     XVector_0.34.0         colorspace_2.0-3       htmltools_0.5.2       
+[19] Matrix_1.4-0           XML_3.99-0.8           pkgconfig_2.0.3        genefilter_1.76.0      zlibbioc_1.40.0        purrr_0.3.4           
+[25] xtable_1.8-4           scales_1.1.1           BiocParallel_1.28.3    tibble_3.1.6           annotate_1.72.0        KEGGREST_1.34.0       
+[31] farver_2.1.0           generics_0.1.2         ellipsis_0.3.2         cachem_1.0.6           withr_2.5.0            cli_3.2.0             
+[37] survival_3.2-13        magrittr_2.0.2         crayon_1.5.0           memoise_2.0.1          evaluate_0.15          fansi_1.0.2           
+[43] tools_4.1.3            formatR_1.11           lifecycle_1.0.1        munsell_0.5.0          locfit_1.5-9.4         DelayedArray_0.20.0   
+[49] lambda.r_1.2.4         AnnotationDbi_1.56.2   Biostrings_2.62.0      jquerylib_0.1.4        compiler_4.1.3         rlang_1.0.1           
+[55] RCurl_1.98-1.6         rstudioapi_0.13        bitops_1.0-7           labeling_0.4.2         rmarkdown_2.13         gtable_0.3.0          
+[61] DBI_1.1.2              R6_2.5.1               knitr_1.37             fastmap_1.1.0          bit_4.0.4              utf8_1.2.2            
+[67] futile.options_1.0.1   stringi_1.7.6          parallel_4.1.3         Rcpp_1.0.8             vctrs_0.3.8            geneplotter_1.72.0    
+[73] png_0.1-7              tidyselect_1.1.2       xfun_0.29  
