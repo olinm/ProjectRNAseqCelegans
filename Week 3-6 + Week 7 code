@@ -45,6 +45,13 @@ res1 <- tibble::rownames_to_column(res1, "sequence_name")
 View(res1)
 ```
 
+#dropping all insignificant and NA genes (missing values)
+Reference: https://www.datasciencemadesimple.com/delete-or-drop-rows-in-r-with-conditions-2/
+```{r}
+res2 <- subset(res1, Sig!="Not Sig" )
+res2 = na.omit(res2)
+```
+
 #modifying the data, preparation for plotting
 All the TF data needs to be modified and merged with the log2 fold change data from week 2 to construct scatterplots for analysis. This is done to all 5 transcription factors of interest below.
 
@@ -180,12 +187,14 @@ dev.off()
 #define sets for diagram
 Since all TFs have already their sets defined, I am only defining the remaining DE gene set
 ```{r}
-SET6 <- res1$sequence_name
+SET6 <- res2$sequence_name
 ```
 
 #HIF1A diagram
 ```{r}
 v2 <- venn.diagram(list(HIF1A=SET1, DEgenes=SET6),
+                   cex = 2,
+                   cat.cex = 2,
                    fill = c("red", "purple"),
                    lty = "blank",
                    alpha = c(0.5, 0.5),
@@ -200,6 +209,8 @@ dev.off()
 #XBP1 diagram
 ```{r}
 v3 <- venn.diagram(list(XBP1=SET2, DEgenes=SET6),
+                   cex = 2,
+                   cat.cex = 2,
                    fill = c("orange", "purple"),
                    lty = "blank",
                    alpha = c(0.5, 0.5),
@@ -214,6 +225,8 @@ dev.off()
 #SKN-1 diagram
 ```{r}
 v4 <- venn.diagram(list(SKN1=SET3, DEgenes=SET6),
+                   cex = 2,
+                   cat.cex = 2,
                    fill = c("yellow", "purple"),
                    lty = "blank",
                    alpha = c(0.5, 0.5),
@@ -228,6 +241,8 @@ dev.off()
 #PQM-1 diagram
 ```{r}
 v5 <- venn.diagram(list(SKN1=SET4, DEgenes=SET6),
+                   cex = 2,
+                   cat.cex = 2,
                    fill = c("green", "purple"),
                    lty = "blank",
                    alpha = c(0.5, 0.5),
@@ -242,6 +257,8 @@ dev.off()
 #PPARa diagram
 ```{r}
 v6 <- venn.diagram(list(SKN1=SET5, DEgenes=SET6),
+                   cex = 2,
+                   cat.cex = 2,
                    fill = c("blue", "purple"),
                    lty = "blank",
                    alpha = c(0.5, 0.5),
@@ -265,6 +282,13 @@ Needed for merging the tables later on to create plots.
 res1 <- tibble::rownames_to_column(res1, "sequence_name")
 View(res1) #does not need to be here since already added before but keeping to avoid confusion (if I wanted to run only this part)
 #DO NOT RUN IF RUNNING THE WHOLE NOTEBOOK
+```
+
+#dropping all insignificant and NA genes (missing values)
+Reference: https://www.datasciencemadesimple.com/delete-or-drop-rows-in-r-with-conditions-2/
+```{r eval=FALSE, include=FALSE}
+res2 <- subset(res1, Sig!="Not Sig" )
+res2 = na.omit(res2) #same as above, DO NOT RUN IF RUNNING THE WHOLE NOTEBOOK
 ```
 
 #modifying the data, preparation for plotting
@@ -402,12 +426,14 @@ dev.off()
 #define sets for diagram
 Since all TFs have already their sets defined, I am only defining the remaining DE gene set
 ```{r}
-SET6 <- res1$sequence_name #does not need to be here since already added but keeping to avoid confusion
+SET6 <- res2$sequence_name #does not need to be here since already added but keeping to avoid confusion
 ```
 
 #HIF1A diagram
 ```{r}
 v8 <- venn.diagram(list(HIF1A=SET7, DEgenes=SET6),
+                   cex = 2,
+                   cat.cex = 2,
                    fill = c("red", "purple"),
                    lty = "blank",
                    alpha = c(0.5, 0.5),
@@ -422,6 +448,8 @@ dev.off()
 #XBP1 diagram
 ```{r}
 v9 <- venn.diagram(list(XBP1=SET8, DEgenes=SET6),
+                   cex = 2,
+                   cat.cex = 2,
                    fill = c("orange", "purple"),
                    lty = "blank",
                    alpha = c(0.5, 0.5),
@@ -436,6 +464,8 @@ dev.off()
 #SKN-1 diagram
 ```{r}
 v10 <- venn.diagram(list(SKN1=SET9, DEgenes=SET6),
+                    cex = 2,
+                   cat.cex = 2,
                    fill = c("yellow", "purple"),
                    lty = "blank",
                    alpha = c(0.5, 0.5),
@@ -450,6 +480,8 @@ dev.off()
 #PQM-1 diagram
 ```{r}
 v11 <- venn.diagram(list(SKN1=SET10, DEgenes=SET6),
+                    cex = 2,
+                   cat.cex = 2,
                    fill = c("green", "purple"),
                    lty = "blank",
                    alpha = c(0.5, 0.5),
@@ -464,6 +496,8 @@ dev.off()
 #PPARa diagram
 ```{r}
 v12 <- venn.diagram(list(SKN1=SET11, DEgenes=SET6),
+                    cex = 2,
+                   cat.cex = 2,
                    fill = c("blue", "purple"),
                    lty = "blank",
                    alpha = c(0.5, 0.5),
@@ -510,4 +544,4 @@ loaded via a namespace (and not attached):
 [55] RCurl_1.98-1.6         rstudioapi_0.13        bitops_1.0-7           labeling_0.4.2         rmarkdown_2.13         gtable_0.3.0          
 [61] DBI_1.1.2              R6_2.5.1               knitr_1.37             fastmap_1.1.0          bit_4.0.4              utf8_1.2.2            
 [67] futile.options_1.0.1   stringi_1.7.6          parallel_4.1.3         Rcpp_1.0.8             vctrs_0.3.8            geneplotter_1.72.0    
-[73] png_0.1-7              tidyselect_1.1.2       xfun_0.29  
+[73] png_0.1-7              tidyselect_1.1.2       xfun_0.29 
